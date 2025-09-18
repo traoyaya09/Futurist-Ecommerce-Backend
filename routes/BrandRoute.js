@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const brandController = require('../controllers/brandController');
+const brandController = require('../controllers/BrandController');
 
 // Route to get all brands with pagination and filtering (GET)
 router.get('/', brandController.getAllBrands);
