@@ -1,5 +1,4 @@
 require('dotenv').config();
-
 const express = require('express');
 const colors = require('colors');
 const morgan = require('morgan');
@@ -15,13 +14,11 @@ const compression = require('compression');
 const cors = require('cors');
 const asyncHandler = require('express-async-handler');
 const http = require('http');
-const { initSocket } = require('./socket'); // Import the socket initialization function
+const { initSocket } = require('./socket');
 const config = require('./config/config.js');
-
-
 const helmet = require('helmet');
 
-// Import Routes
+// Import other routes
 const adminRoutes = require('./routes/adminRoute.js');
 const AnalyticsRoute = require('./routes/AnalyticsRoute');
 const UserRoute = require('./routes/UserRoute.js');
@@ -46,44 +43,54 @@ const SupportTicketRoute = require('./routes/SupportTicketRoute.js');
 const SearchRoute = require('./routes/SearchRoute.js');
 const TransactionRoute = require('./routes/TransactionRoute.js');
 
-// Connect to the database
+// 🔌 Connect to the database
 connectDB();
 
 // Create Express app
 const app = express();
 
-// Middleware
+// 🛡 Security middlewares
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(securityHeaders);
+app.use(compression());
+app.use(logger);
+
+// Parse JSON & URL-encoded bodies
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 📜 Logging in development
+if (config.app.environment === 'development') {
+  app.use(morgan('dev'));
+}
+
+// 🌍 CORS setup (working pattern)
+const allowedOrigins = config.cors.allowedOrigins || ['http://localhost:3000'];
 app.use(
-  helmet({
-    contentSecurityPolicy: false, // Disable CSP
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // allow Postman or server-to-server requests
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   })
 );
 
-app.use(express.json()); // Middleware to parse JSON bodies
-app.use(morgan('dev')); // For logging requests
-app.use(compression()); // Middleware to handle response compression
-app.use(securityHeaders); // Custom security headers middleware
-app.use(logger); // Logging middleware
-app.use(cors()); // Enable CORS for all requests
-// Enable CORS for all requests
-// CSP Middleware
-// app.use((req, res, next) => {
-//   res.setHeader(
-//     'Content-Security-Policy',
-//     "default-src 'self'; connect-src 'self' http://localhost:8080; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
-//   );
-//   next();
-// });
-
-
-// Set up rate limiter to prevent abuse
+// 🔒 Rate limiter
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 100, // limit per IP
 });
-app.use(limiter); // Apply rate limiter middleware
+app.use(limiter);
 
-// API routes
+// ------------------------------
+// API Routes
+// ------------------------------
 app.use('/api/v1/auth', AuthRoute);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/analytics', AnalyticsRoute);
@@ -111,7 +118,7 @@ app.use('/api/v1/users', UserRoute);
 
 // Example protected route
 app.get('/api/v1/protected', authenticate, (req, res) => {
-  res.send('You have accessed a protected route!');
+  res.json({ success: true, message: 'You have accessed a protected route!' });
 });
 
 // Example admin route
@@ -124,23 +131,26 @@ app.get(
   })
 );
 
-// Basic route to check server status
+// Basic home route
 app.get('/', (req, res) => {
   res.send("<h1>Welcome to Yaya's Futurist E-commerce App</h1>");
 });
 
-// Error handling middleware (should be at the end)
+// 404 handler
+app.use((req, res, next) => {
+  res.status(404).json({ success: false, message: 'Route not found' });
+});
+
+// Error handler (should be last)
 app.use(errorHandler);
 
-// Create HTTP server and integrate WebSockets
+// Create HTTP server & integrate WebSockets
 const server = http.createServer(app);
-
-// Initialize Socket.IO
 initSocket(server);
 
-// Start the server
-const PORT = config.app.port; // Use the correct port property from config.app
+// Start server
+const PORT = config.app.port;
 server.listen(PORT, () => {
-  console.log(`Server running in ${config.app.environment} mode on port ${config.app.port}`);
-  console.log("JWT_SECRET:", process.env.JWT_SECRET); // verify that the secret is loaded.
+  console.log(`Server running in ${config.app.environment} mode on port ${PORT}`.green.bold);
+  console.log('JWT_SECRET loaded:', !!process.env.JWT_SECRET);
 });
