@@ -1,16 +1,17 @@
 const mongoose = require('mongoose');
 
 const packageSchema = new mongoose.Schema({
-  weight: { type: Number, required: true }, // Weight of the package in kg
+  weight: { type: Number, required: true },
   dimensions: {
-    length: { type: Number, required: true }, // Length in cm
-    width: { type: Number, required: true },  // Width in cm
-    height: { type: Number, required: true }  // Height in cm
+    length: { type: Number, required: true },
+    width: { type: Number, required: true },
+    height: { type: Number, required: true }
   },
-  trackingNumber: { type: String, required: true }, // Unique tracking number for each package
-});
+  trackingNumber: { type: String, required: true },
+}, { _id: false });
 
 const shippingSchema = new mongoose.Schema({
+  orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', required: true },
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   address: { type: String, required: true },
   city: { type: String, required: true },
@@ -26,25 +27,25 @@ const shippingSchema = new mongoose.Schema({
     enum: ['Standard', 'Express', 'Overnight', 'Two-Day'],
     required: true
   },
-  estimatedDelivery: { type: Date }, // Expected delivery date based on shipping method
-  shippingCost: { type: Number, required: true, default: 0 }, // Total cost of shipping
-  trackingNumbers: [{ type: String }], // Array of tracking numbers for multi-package shipments
-  packages: [packageSchema], // Array of packages for more detailed tracking
-  insurance: {
-    type: Boolean,
-    default: false // Option to insure the shipment
-  },
-  insuranceValue: {
-    type: Number,
-    default: 0, // Value of insurance coverage
-  },
-  dispatchedAt: { type: Date }, // Date when the shipment was dispatched
-  deliveredAt: { type: Date }, // Date when the shipment was delivered
+  estimatedDelivery: { type: Date },
+  shippingCost: { type: Number, required: true, default: 0 },
+  packages: [packageSchema],
+  trackingNumbers: [{ type: String }], // denormalized from packages
+  insurance: { type: Boolean, default: false },
+  insuranceValue: { type: Number, default: 0 },
+  dispatchedAt: { type: Date },
+  deliveredAt: { type: Date }
 }, { timestamps: true });
 
-// Indexes to optimize queries
+// Populate trackingNumbers from packages
+shippingSchema.pre('save', function(next) {
+  this.trackingNumbers = this.packages.map(pkg => pkg.trackingNumber);
+  next();
+});
+
+// Indexes
 shippingSchema.index({ user: 1, status: 1 });
-shippingSchema.index({ trackingNumbers: 1 });
+shippingSchema.index({ "packages.trackingNumber": 1 });
 
 const Shipping = mongoose.model('Shipping', shippingSchema);
 

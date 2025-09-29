@@ -1,4 +1,6 @@
+// models/Product.js
 const mongoose = require('mongoose');
+const { adaptProduct } = require('../utils/adaptProduct');
 
 const ProductSchema = new mongoose.Schema({
   name: {
@@ -17,10 +19,24 @@ const ProductSchema = new mongoose.Schema({
     required: [true, 'Product price is required'],
     min: [0, 'Price cannot be negative']
   },
+  discountPrice: {
+    type: Number,
+    default: null
+  },
   category: {
     type: String,
     required: [true, 'Product category is required'],
     trim: true
+  },
+  subCategory: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  brand: {
+    type: String,
+    trim: true,
+    default: ''
   },
   stock: {
     type: Number,
@@ -30,7 +46,23 @@ const ProductSchema = new mongoose.Schema({
   },
   imageUrl: {
     type: String,
-    default: 'https://via.placeholder.com/150' // Placeholder image URL
+    default: 'https://via.placeholder.com/150'
+  },
+  link: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  rating: {
+    type: Number,
+    min: 0,
+    max: 5,
+    default: 0
+  },
+  reviewsCount: {
+    type: Number,
+    min: 0,
+    default: 0
   },
   isFeatured: {
     type: Boolean,
@@ -42,5 +74,32 @@ const ProductSchema = new mongoose.Schema({
   }
 });
 
-const Product = mongoose.model('Product', ProductSchema);
-module.exports = Product;
+// Add indexes for faster queries
+ProductSchema.index({ category: 1 });
+ProductSchema.index({ name: 'text', description: 'text' });
+
+// -------------------------
+// Static method to normalize incoming raw data
+// -------------------------
+ProductSchema.statics.normalizeIncoming = function(raw) {
+  const adapted = adaptProduct(raw);
+
+  return {
+    name: adapted.name,
+    description: adapted.description,
+    price: adapted.price,
+    discountPrice: adapted.discountPrice,
+    category: adapted.category,
+    subCategory: adapted.subCategory || raw.sub_category || '',
+    brand: adapted.brand,
+    stock: adapted.stock ?? 0,
+    imageUrl: adapted.imageUrl,
+    link: adapted.link || raw.link || '',
+    rating: adapted.rating,
+    reviewsCount: adapted.reviewsCount,
+    isFeatured: raw.isFeatured ?? false,
+    createdAt: raw.createdAt || undefined,
+  };
+};
+
+module.exports = mongoose.model('Product', ProductSchema);

@@ -2,32 +2,40 @@ const express = require('express');
 const router = express.Router();
 const cartController = require('../controllers/CartController');
 
-// Route for adding an item to the cart
-router.post('/add', cartController.addToCart);
+// -------------------------
+// Cart routes
+// -------------------------
 
-// Route for removing an item from the cart
-router.delete('/remove', cartController.removeFromCart);
+// Get user's cart
+// GET /cart/:userId
+router.get('/:userId', cartController.getCart);
 
-// Route for updating cart item quantity
-router.put('/update', cartController.updateCartItem);
+// Add or update product in cart
+// POST /cart/:userId/product
+router.post('/:userId/product', cartController.addOrUpdateProduct);
 
-// Route for fetching the user's cart
-router.get('/:userId', cartController.getCart);  // Changed from POST to GET for fetching data
-router.get('/', cartController.getCart);  // No userId, but still requires the user to be authenticated or passed some identifier
+// Remove product from cart
+// DELETE /cart/:userId/product/:id
+router.delete('/:userId/product/:id', cartController.removeProduct);
 
-// Route for checking out
-router.post('/checkout/:userId', cartController.checkout);
+// Save product for later
+// POST /cart/:userId/product/:id/save
+router.post('/:userId/product/:id/save', cartController.saveProductForLater);
 
-// Route for applying a promotion code
-router.post('/promotion/apply', cartController.applyPromotion);
+// Merge guest cart into user's cart
+// POST /cart/:userId/merge
+router.post('/:userId/merge', cartController.mergeCarts);
 
-// Route for saving an item for later
-router.post('/saveForLater', cartController.saveForLater);
+// Checkout
+// POST /cart/:userId/checkout
+router.post('/:userId/checkout', cartController.checkout);
 
-// Route for merging guest cart with user cart
-router.post('/merge', cartController.mergeCarts);
+// Apply promotion
+// POST /cart/:userId/promotion
+router.post('/:userId/promotion', cartController.applyPromotion);
 
-// Route for applying a discount code
-router.post('/discount/apply', cartController.applyDiscount);
+// Apply discount
+// POST /cart/:userId/discount
+router.post('/:userId/discount', cartController.applyDiscount);
 
 module.exports = router;

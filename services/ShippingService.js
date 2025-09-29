@@ -1,35 +1,44 @@
-const Shipping = require('../models/ShippingModel'); // Shipping model for database interaction
-const { calculateShippingCost, trackShipment } = require('../utils/ShippingCostCalculation'); // Functions for shipping calculations and tracking
-const logger = require('../utils/logger');  // Logger utility
+const Shipping = require('../models/ShippingModel');
+const Order = require('../models/OrderModel');
+const { calculateShippingCost, trackShipment } = require('../utils/ShippingCostCalculation');
+const logger = require('../utils/logger');
+const { v4: uuidv4 } = require('uuid'); // For generating tracking numbers
 
-// Create a new shipping record
-const createShipping = async (userData, shippingData) => {
+// Create a shipping record for a user (used by Order creation or manually)
+const createShipping = async (userId, shippingData, orderId = null) => {
   try {
-    // Calculate the shipping cost
     const shippingCost = await calculateShippingCost(shippingData);
 
-    // Create a new shipping record
+    // Generate tracking numbers automatically for each package
+    const packagesWithTracking = (shippingData.packages || []).map(pkg => ({
+      ...pkg,
+      trackingNumber: uuidv4()
+    }));
+
     const newShipping = new Shipping({
-      user: userData._id, // Assumed user data passed in
+      user: userId,
       address: shippingData.address,
       city: shippingData.city,
       postalCode: shippingData.postalCode,
       country: shippingData.country,
       method: shippingData.method,
       estimatedDelivery: shippingData.estimatedDelivery,
-      shippingCost: shippingCost,
-      trackingNumbers: [],
-      packages: shippingData.packages,
+      shippingCost,
+      packages: packagesWithTracking,
       insurance: shippingData.insurance || false,
       insuranceValue: shippingData.insuranceValue || 0,
-      dispatchedAt: null,  // Dispatch date will be updated when the package is shipped
-      deliveredAt: null,  // Delivery date will be updated when the package is delivered
+      status: 'Pending'
     });
 
-    // Save the new shipping record
     const savedShipping = await newShipping.save();
-    logger.info(`Shipping created for user: ${userData._id}, tracking number: ${savedShipping.trackingNumbers}`);
 
+    // If linked to an order, update order trackingNumbers array
+    if (orderId) {
+      const trackingNumbers = packagesWithTracking.map(p => p.trackingNumber);
+      await Order.findByIdAndUpdate(orderId, { $push: { trackingNumbers: { $each: trackingNumbers } } });
+    }
+
+    logger.info(`Shipping created for user: ${userId}, tracking numbers: ${packagesWithTracking.map(p => p.trackingNumber)}`);
     return savedShipping;
   } catch (error) {
     logger.error(`Error creating shipping record: ${error.message}`);
@@ -37,29 +46,38 @@ const createShipping = async (userData, shippingData) => {
   }
 };
 
-// Update the shipping status (e.g., "Shipped", "Delivered")
+// Update shipping status and auto-update order status if needed
 const updateShippingStatus = async (shippingId, status) => {
   try {
-    // Find the shipping record
     const shipping = await Shipping.findById(shippingId);
-    if (!shipping) {
-      throw new Error('Shipping record not found');
-    }
+    if (!shipping) throw new Error('Shipping record not found');
 
-    // Update the status
     shipping.status = status;
 
-    // Set the dispatchedAt or deliveredAt based on the status
-    if (status === 'Shipped' && !shipping.dispatchedAt) {
-      shipping.dispatchedAt = new Date();
-    } else if (status === 'Delivered' && !shipping.deliveredAt) {
-      shipping.deliveredAt = new Date();
+    if (status === 'Shipped' && !shipping.dispatchedAt) shipping.dispatchedAt = new Date();
+    if (status === 'Delivered' && !shipping.deliveredAt) shipping.deliveredAt = new Date();
+
+    const updatedShipping = await shipping.save();
+
+    // Auto-update order status if linked
+    const orders = await Order.find({ trackingNumbers: { $in: shipping.packages.map(p => p.trackingNumber) } });
+    for (const order of orders) {
+      const allShipped = await Shipping.countDocuments({
+        _id: { $in: order.trackingNumbers.map(t => t) },
+        status: { $nin: ['Shipped', 'Delivered'] }
+      }) === 0;
+
+      const allDelivered = await Shipping.countDocuments({
+        _id: { $in: order.trackingNumbers.map(t => t) },
+        status: { $ne: 'Delivered' }
+      }) === 0;
+
+      if (allDelivered) order.status = 'Delivered';
+      else if (allShipped) order.status = 'Shipped';
+      await order.save();
     }
 
-    // Save the updated shipping record
-    const updatedShipping = await shipping.save();
     logger.info(`Shipping status updated for shipping ID: ${shippingId}, new status: ${status}`);
-
     return updatedShipping;
   } catch (error) {
     logger.error(`Error updating shipping status: ${error.message}`);
@@ -67,56 +85,51 @@ const updateShippingStatus = async (shippingId, status) => {
   }
 };
 
-// Track a shipment using its tracking number
-const trackShipping = async (trackingNumber) => {
-  try {
-    const trackingInfo = await trackShipment(trackingNumber);
-
-    // Here, you could return the tracking info to the user or update the status
-    return trackingInfo;
-  } catch (error) {
-    logger.error(`Error tracking shipment with tracking number: ${trackingNumber} - ${error.message}`);
-    throw new Error('Error tracking shipment');
-  }
-};
-
-// Get all shipments for a user
 const getShipmentsByUser = async (userId, status) => {
   try {
     const query = { user: userId };
     if (status) query.status = status;
-
-    // Get all shipments for the user, with optional status filtering
-    const shipments = await Shipping.find(query).populate('user', 'name email');
-
-    return shipments;
+    return Shipping.find(query).populate('user', 'name email');
   } catch (error) {
-    logger.error(`Error fetching shipments for user ID: ${userId} - ${error.message}`);
+    logger.error(`Error fetching shipments for user: ${error.message}`);
     throw new Error('Error fetching shipments');
   }
 };
 
-// Get specific shipment details by ID
-const getShipmentById = async (shippingId) => {
+const trackShipping = async (trackingNumber) => {
   try {
-    // Find a specific shipment record by its ID
-    const shipment = await Shipping.findById(shippingId).populate('user', 'name email');
-
-    if (!shipment) {
-      throw new Error('Shipment not found');
-    }
-
-    return shipment;
+    return trackShipment(trackingNumber);
   } catch (error) {
-    logger.error(`Error fetching shipment by ID: ${shippingId} - ${error.message}`);
-    throw new Error('Error fetching shipment details');
+    logger.error(`Error tracking shipment: ${error.message}`);
+    throw new Error('Error tracking shipment');
+  }
+};
+
+const deleteShipping = async (shippingId) => {
+  try {
+    const shipping = await Shipping.findByIdAndDelete(shippingId);
+    if (!shipping) throw new Error('Shipping not found');
+    return shipping;
+  } catch (error) {
+    logger.error(`Error deleting shipping: ${error.message}`);
+    throw new Error('Error deleting shipping');
+  }
+};
+const calculateShipping = async (shippingData) => {
+  try {
+    const cost = await calculateShippingCost(shippingData);
+    return cost;
+  } catch (error) {
+    logger.error(`Error calculating shipping cost: ${error.message}`);
+    throw new Error('Error calculating shipping cost');
   }
 };
 
 module.exports = {
   createShipping,
   updateShippingStatus,
-  trackShipping,
   getShipmentsByUser,
-  getShipmentById,
+  trackShipping,
+  deleteShipping,
+  calculateShipping
 };

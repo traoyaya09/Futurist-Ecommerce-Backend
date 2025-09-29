@@ -1,257 +1,299 @@
+// backend/controllers/CartController.js
 const Cart = require('../models/CartModel');
 const Product = require('../models/ProductModel');
+const Promotion = require('../models/PromotionModel');
 const Order = require('../models/OrderModel');
-const Promotion = require('../models/PromotionModel'); // Assuming there's a Promotion model
-const { getSocketInstance } = require('../socket');
+const User = require('../models/UserModel');
+const { normalizeCartItems, normalizeCart } = require('../utils/normalizeCart');
+const { adaptProduct } = require('../utils/adaptProduct');
+const { emitCartUpdated, emitCheckoutCompleted } = require('../socket');
 
-const cartController = {
-  // Add item to cart with product validation
-  addToCart: async (req, res) => {
-    try {
-      const { userId, productId, quantity } = req.body;
+const CartController = {};
 
-      // Validate product existence and stock
-      const product = await Product.findById(productId);
-      if (!product) {
-        return res.status(404).json({ message: 'Product not found' });
-      }
-      if (product.quantity < quantity) {
-        return res.status(400).json({ message: 'Not enough stock available' });
-      }
+/** -------------------------
+ * Programmatic Direct Methods (for AIService)
+ * ------------------------- */
 
-      // Add product to user's cart, or update quantity if it already exists
-      const cart = await Cart.findOneAndUpdate(
-        { userId },
-        {
-          $addToSet: { items: { productId, quantity, price: product.price } },
-          $inc: { totalAmount: product.price * quantity }
-        },
-        { upsert: true, new: true }
-      );
+// Add or update product in cart
+CartController.addOrUpdateProductDirect = async (userId, productId, delta = 1) => {
+  if (!userId || !productId) throw new Error('userId and productId are required');
 
-      // Emit socket event after adding item
-      const io = getSocketInstance();
-      io.emit('cart:itemAdded', cart);
+  let product = await Product.findById(productId).lean();
+  if (!product) throw new Error('Product not found');
+  product = adaptProduct(product);
 
-      res.status(200).json(cart);
-    } catch (error) {
-      console.error('Error adding to cart:', error);
-      res.status(500).json({ message: 'Error adding product to cart' });
+  const productPrice = Number(product.price ?? 0);
+  const cart = (await Cart.findOne({ user: userId })) || new Cart({ user: userId });
+
+  const existingIndex = cart.items.findIndex(
+    i => (i.product?._id?.toString() === productId.toString()) || (i.product_id?.toString() === productId.toString())
+  );
+
+  if (existingIndex >= 0) {
+    const newQuantity = (cart.items[existingIndex].quantity ?? 0) + Number(delta);
+    if (newQuantity < 1) {
+      cart.items.splice(existingIndex, 1);
+    } else {
+      cart.items[existingIndex].quantity = newQuantity;
+      cart.items[existingIndex].price = productPrice;
+      cart.items[existingIndex].total = Number((newQuantity * productPrice).toFixed(2));
     }
-  },
+  } else if (delta > 0) {
+    cart.items.push({
+      product: product._id,
+      product_id: product.id ?? product._id,
+      quantity: delta,
+      price: productPrice,
+      total: Number((delta * productPrice).toFixed(2)),
+    });
+  }
 
-  // Remove item from cart
-  removeFromCart: async (req, res) => {
-    try {
-      const { userId, itemId } = req.body;
+  await cart.save();
 
-      // Remove the item from the cart and update the total amount
-      const cart = await Cart.findOneAndUpdate(
-        { userId },
-        { 
-          $pull: { items: { _id: itemId } },
-          $set: { updatedAt: new Date() }
-        },
-        { new: true }
-      );
-      if (!cart) return res.status(404).json({ message: 'Cart not found' });
+  const populatedCart = await Cart.findById(cart._id).populate('items.product savedItems.product');
+  populatedCart.items = normalizeCartItems(populatedCart.items);
+  populatedCart.savedItems = normalizeCartItems(populatedCart.savedItems);
 
-      // Emit socket event after removing item
-      const io = getSocketInstance();
-      io.emit('cart:itemRemoved', { userId, itemId });
+  emitCartUpdated(populatedCart);
+  return normalizeCart(populatedCart);
+};
 
-      res.status(200).json(cart);
-    } catch (error) {
-      console.error('Error removing item from cart:', error);
-      res.status(500).json({ message: 'Error removing item from cart' });
+// Remove product from cart
+CartController.removeFromCartDirect = async (userId, productId) => {
+  const cart = await Cart.findOne({ user: userId });
+  if (!cart) throw new Error('Cart not found');
+
+  cart.items = cart.items.filter(i => i.product.toString() !== productId.toString());
+  await cart.save();
+
+  const populatedCart = await Cart.findById(cart._id).populate('items.product savedItems.product');
+  populatedCart.items = normalizeCartItems(populatedCart.items);
+  populatedCart.savedItems = normalizeCartItems(populatedCart.savedItems);
+
+  emitCartUpdated(populatedCart);
+  return normalizeCart(populatedCart);
+};
+
+// Save product for later
+CartController.saveProductForLaterDirect = async (userId, productId) => {
+  const cart = await Cart.findOne({ user: userId });
+  if (!cart) throw new Error('Cart not found');
+
+  const item = cart.items.find(i => i.product.toString() === productId.toString());
+  if (!item) throw new Error('Product not in cart');
+
+  cart.savedItems.push({ product: item.product });
+  cart.items = cart.items.filter(i => i.product.toString() !== productId.toString());
+  await cart.save();
+
+  const populatedCart = await Cart.findById(cart._id).populate('items.product savedItems.product');
+  populatedCart.items = normalizeCartItems(populatedCart.items);
+  populatedCart.savedItems = normalizeCartItems(populatedCart.savedItems);
+
+  emitCartUpdated(populatedCart);
+  return normalizeCart(populatedCart);
+};
+
+// Apply promotion code
+CartController.applyPromotionDirect = async (userId, promoCode) => {
+  const promotion = await Promotion.findValidPromotion(promoCode);
+  if (!promotion) throw new Error('Invalid promotion code');
+
+  const cart = await Cart.findOne({ user: userId }).populate('items.product savedItems.product');
+  if (!cart) throw new Error('Cart not found');
+
+  cart.appliedPromotion = promotion._id;
+  await cart.save();
+
+  cart.items = normalizeCartItems(cart.items);
+  cart.savedItems = normalizeCartItems(cart.savedItems);
+
+  emitCartUpdated(cart);
+  return normalizeCart(cart);
+};
+
+// Apply discount directly
+CartController.applyDiscountDirect = async (userId, discountAmount) => {
+  const discount = Number(discountAmount);
+  if (isNaN(discount) || discount < 0) throw new Error('Invalid discount amount');
+
+  const cart = await Cart.findOne({ user: userId }).populate('items.product savedItems.product');
+  if (!cart) throw new Error('Cart not found');
+
+  if (typeof cart.applyDiscount === 'function') {
+    cart.applyDiscount(discount);
+  } else {
+    cart.discount = discount;
+  }
+  await cart.save();
+
+  cart.items = normalizeCartItems(cart.items);
+  cart.savedItems = normalizeCartItems(cart.savedItems);
+
+  emitCartUpdated(cart);
+  return normalizeCart(cart);
+};
+
+// Merge guest cart into user's cart
+CartController.mergeCartsDirect = async (userId, guestCartId) => {
+  const guestCart = await Cart.findById(guestCartId);
+  if (!guestCart) throw new Error('Guest cart not found');
+
+  const cart = (await Cart.findOne({ user: userId })) || new Cart({ user: userId });
+
+  for (const item of guestCart.items) {
+    const existingItem = cart.items.find(i => i.product.toString() === item.product.toString());
+    if (existingItem) {
+      existingItem.quantity += item.quantity;
+      existingItem.total = Number((existingItem.quantity * existingItem.price).toFixed(2));
+    } else {
+      cart.items.push(item);
     }
-  },
+  }
 
-  // Update cart item quantity
-  updateCartItem: async (req, res) => {
-    try {
-      const { userId, itemId, quantity } = req.body;
+  await cart.save();
+  await Cart.findByIdAndDelete(guestCartId);
 
-      // Ensure the quantity is valid
-      if (quantity <= 0) {
-        return res.status(400).json({ message: 'Quantity must be greater than zero' });
-      }
+  const populatedCart = await Cart.findById(cart._id).populate('items.product savedItems.product');
+  populatedCart.items = normalizeCartItems(populatedCart.items);
+  populatedCart.savedItems = normalizeCartItems(populatedCart.savedItems);
 
-      // Update the cart item quantity
-      const cart = await Cart.findOneAndUpdate(
-        { userId, "items._id": itemId },
-        { $set: { "items.$.quantity": quantity } },
-        { new: true }
-      );
-      if (!cart) return res.status(404).json({ message: 'Cart not found' });
+  emitCartUpdated(populatedCart);
+  return normalizeCart(populatedCart);
+};
 
-      // Emit socket event after updating item quantity
-      const io = getSocketInstance();
-      io.emit('cart:itemUpdated', { userId, itemId, quantity });
+// Checkout cart
+CartController.checkoutCartDirect = async (userId) => {
+  const cart = await Cart.findOne({ user: userId }).populate('items.product');
+  if (!cart || cart.items.length === 0) throw new Error('Cart is empty');
 
-      res.status(200).json(cart);
-    } catch (error) {
-      console.error('Error updating cart item:', error);
-      res.status(500).json({ message: 'Error updating cart item' });
-    }
-  },
+  cart.items = normalizeCartItems(cart.items);
+  const totalAmount = cart.items.reduce((sum, i) => sum + (i.total ?? 0), 0);
+  const finalAmount = totalAmount - (cart.discount ?? 0);
 
-  // Get the user's cart
-  getCart: async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const cart = await Cart.findOne({ userId }).populate('items.productId', 'name price');
-      if (!cart) return res.status(404).json({ message: 'Cart not found' });
+  const order = new Order({
+    user: userId,
+    items: cart.items,
+    totalAmount,
+    discount: cart.discount ?? 0,
+    status: 'Pending',
+  });
+  await order.save();
 
-      res.status(200).json(cart);
-    } catch (error) {
-      console.error('Error fetching cart:', error);
-      res.status(500).json({ message: 'Error fetching cart' });
-    }
-  },
+  for (const item of cart.items) {
+    await Product.findByIdAndUpdate(item.product._id, { $inc: { stock: -item.quantity } });
+  }
 
-  // Checkout process with promotion and order creation
-  checkout: async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const cart = await Cart.findOne({ userId }).populate('items.productId');
-      if (!cart || cart.items.length === 0) {
-        return res.status(400).json({ message: 'Cart is empty' });
-      }
+  cart.items = [];
+  await cart.save();
 
-      // Calculate total amount and apply any promotions
-      const totalAmount = cart.items.reduce((total, item) => total + item.quantity * item.productId.price, 0);
-      const promotionDiscount = await Promotion.calculateDiscount(userId, totalAmount); // Assumed logic
+  emitCheckoutCompleted(order);
+  return { order, cart: normalizeCart(cart) };
+};
 
-      const finalAmount = totalAmount - promotionDiscount;
+/** -------------------------
+ * Express Handlers
+ * ------------------------- */
 
-      // Create an order
-      const order = new Order({
-        userId,
-        items: cart.items,
-        totalAmount: finalAmount,
-        discount: promotionDiscount,
-        status: 'Pending',
-      });
-      await order.save();
+// Get user's cart
+CartController.getCart = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ success: false, message: 'userId required' });
 
-      // Reduce product stock
-      for (const item of cart.items) {
-        await Product.findByIdAndUpdate(item.productId._id, {
-          $inc: { quantity: -item.quantity }
-        });
-      }
+    let cart = await Cart.findOne({ user: userId }).populate('items.product savedItems.product');
+    if (!cart) cart = new Cart({ user: userId });
 
-      // Clear the cart after successful order
-      await Cart.findOneAndUpdate({ userId }, { $set: { items: [] } });
+    cart.items = normalizeCartItems(cart.items);
+    cart.savedItems = normalizeCartItems(cart.savedItems);
 
-      // Emit socket event for checkout completion
-      const io = getSocketInstance();
-      io.emit('cart:checkoutCompleted', order);
-
-      res.status(200).json({ message: 'Checkout successful', order });
-    } catch (error) {
-      console.error('Error during checkout:', error);
-      res.status(500).json({ message: 'Error during checkout' });
-    }
-  },
-
-  // Apply promotion code
-  applyPromotion: async (req, res) => {
-    try {
-      const { userId, promoCode } = req.body;
-      const promotion = await Promotion.findValidPromotion(promoCode);
-      if (!promotion) {
-        return res.status(400).json({ message: 'Invalid promotion code' });
-      }
-
-      const cart = await Cart.findOneAndUpdate(
-        { userId },
-        { $set: { appliedPromotion: promotion._id } },
-        { new: true }
-      );
-
-      // Emit socket event for promotion applied
-      const io = getSocketInstance();
-      io.emit('cart:promotionApplied', { userId, promoCode, cart });
-
-      res.status(200).json({ message: 'Promotion applied successfully', cart });
-    } catch (error) {
-      console.error('Error applying promotion:', error);
-      res.status(500).json({ message: 'Error applying promotion' });
-    }
-  },
-
-  // Save item for later
-  saveForLater: async (req, res) => {
-    try {
-      const { userId, itemId } = req.body;
-      const cart = await Cart.findOneAndUpdate(
-        { userId },
-        {
-          $pull: { items: { _id: itemId } },
-          $addToSet: { savedItems: itemId }
-        },
-        { new: true }
-      );
-
-      // Emit socket event for saving item for later
-      const io = getSocketInstance();
-      io.emit('cart:itemSavedForLater', { userId, itemId, cart });
-
-      res.status(200).json(cart);
-    } catch (error) {
-      console.error('Error saving item for later:', error);
-      res.status(500).json({ message: 'Error saving item for later' });
-    }
-  },
-
-  // Merge guest cart into user cart
-  mergeCarts: async (req, res) => {
-    try {
-      const { userId, guestCartId } = req.body;
-
-      const guestCart = await Cart.findOne({ userId: guestCartId });
-      if (!guestCart) {
-        return res.status(404).json({ message: 'Guest cart not found' });
-      }
-
-      const userCart = await Cart.findOneAndUpdate(
-        { userId },
-        { $addToSet: { items: { $each: guestCart.items } } },
-        { new: true }
-      );
-
-      // Clear guest cart
-      await Cart.findOneAndDelete({ userId: guestCartId });
-
-      // Emit socket event for merging carts
-      const io = getSocketInstance();
-      io.emit('cart:cartsMerged', { userId, userCart });
-
-      res.status(200).json(userCart);
-    } catch (error) {
-      console.error('Error merging carts:', error);
-      res.status(500).json({ message: 'Error merging carts' });
-    }
-  },
-
-  // Apply discount
-  applyDiscount: async (req, res) => {
-    try {
-      const { userId, discountCode } = req.body;
-      // Implement apply discount logic (if needed, tie it to a discount model)
-
-      // Emit event if desired (optional)
-      const io = getSocketInstance();
-      io.emit('cart:discountApplied', { userId, discountCode });
-
-      res.status(200).json({ message: 'Discount applied successfully' });
-    } catch (error) {
-      console.error('Error applying discount:', error);
-      res.status(500).json({ message: 'Error applying discount' });
-    }
+    res.status(200).json({ success: true, data: cart });
+  } catch (error) {
+    console.error('Error fetching cart:', error);
+    res.status(500).json({ success: false, message: 'Error fetching cart' });
   }
 };
 
-module.exports = cartController;
+// Add/update product
+CartController.addOrUpdateProduct = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { id, delta } = req.body;
+    const updatedCart = await CartController.addOrUpdateProductDirect(userId, id, delta);
+    res.status(200).json({ success: true, data: updatedCart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Remove product
+CartController.removeProduct = async (req, res) => {
+  try {
+    const { userId, id } = req.params;
+    const updatedCart = await CartController.removeFromCartDirect(userId, id);
+    res.status(200).json({ success: true, data: updatedCart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Save for later
+CartController.saveProductForLater = async (req, res) => {
+  try {
+    const { userId, id } = req.params;
+    const updatedCart = await CartController.saveProductForLaterDirect(userId, id);
+    res.status(200).json({ success: true, data: updatedCart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Apply promotion
+CartController.applyPromotion = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { promoCode } = req.body;
+    const updatedCart = await CartController.applyPromotionDirect(userId, promoCode);
+    res.status(200).json({ success: true, data: updatedCart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Apply discount
+CartController.applyDiscount = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { discountAmount } = req.body;
+    const updatedCart = await CartController.applyDiscountDirect(userId, discountAmount);
+    res.status(200).json({ success: true, data: updatedCart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Merge guest cart
+CartController.mergeCarts = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { guestCartId } = req.body;
+    const updatedCart = await CartController.mergeCartsDirect(userId, guestCartId);
+    res.status(200).json({ success: true, data: updatedCart });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Checkout
+CartController.checkout = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await CartController.checkoutCartDirect(userId);
+    res.status(200).json({ success: true, message: 'Checkout successful', data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+ 
+  }
+};
+
+module.exports = CartController;

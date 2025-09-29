@@ -53,49 +53,137 @@ const analyticsController = {
   },
 
   // Generate analytics report
-  generateReport: async (req, res) => {
-    try {
-      const cacheKey = 'analyticsReport';
-      const cachedReport = await cache.get(cacheKey);
+  // Generate analytics report with pagination
+        generateReport: async (req, res) => {
+          try {
+            const cacheKey = 'analyticsReport';
+            const cachedReport = await cache.get(cacheKey);
 
-      if (cachedReport) {
-        return res.status(200).json({
-          success: true,
-          data: cachedReport,
-        });
-      }
+            if (cachedReport) {
+              // Apply pagination even to cached data
+              const page = parseInt(req.query.page) || 1;
+              const limit = parseInt(req.query.limit) || 10;
+              const start = (page - 1) * limit;
+              const end = start + limit;
 
-      const reportData = await Analytics.aggregate([
-        {
-          $group: {
-            _id: { page: "$pageName" },
-            totalViews: { $sum: 1 },
-            uniqueUsers: { $addToSet: "$userId" }, // Count unique users per page
-          },
+              return res.status(200).json({
+                success: true,
+                data: cachedReport.slice(start, end),
+                pagination: {
+                  currentPage: page,
+                  totalPages: Math.ceil(cachedReport.length / limit),
+                  totalItems: cachedReport.length,
+                  limit,
+                },
+              });
+            }
+
+            const reportData = await Analytics.aggregate([
+              { $group: { _id: { page: "$pageName" }, totalViews: { $sum: 1 }, uniqueUsers: { $addToSet: "$userId" } } },
+              { $project: { _id: 1, totalViews: 1, uniqueUsers: { $size: "$uniqueUsers" } } },
+              { $sort: { totalViews: -1 } },
+            ]);
+
+            await cache.set(cacheKey, reportData, 60 * 60);
+
+            // Pagination
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
+            const start = (page - 1) * limit;
+            const end = start + limit;
+
+            return res.status(200).json({
+              success: true,
+              data: reportData.slice(start, end),
+              pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(reportData.length / limit),
+                totalItems: reportData.length,
+                limit,
+              },
+            });
+          } catch (error) {
+            logger.error("Error generating report", { error });
+            return res.status(500).json({
+              success: false,
+              message: "Error generating report",
+            });
+          }
         },
-        {
-          $project: {
-            _id: 1,
-            totalViews: 1,
-            uniqueUsers: { $size: "$uniqueUsers" }, // Convert set to unique count
-          },
-        },
-        { $sort: { totalViews: -1 } }, // Sort by most viewed pages
-      ]);
 
-      await cache.set(cacheKey, reportData, 60 * 60); // Cache report for 1 hour
-      return res.status(200).json({
-        success: true,
-        data: reportData,
-      });
-    } catch (error) {
-      logger.error("Error generating report", { error });
-      return res.status(500).json({
-        success: false,
-        message: "Error generating report",
-      });
-    }
-  },
+        // Cohort Analysis with pagination
+        cohortAnalysis: async (req, res) => {
+          try {
+            const cohortData = await Analytics.aggregate([
+              { $group: { _id: { month: { $month: "$createdAt" }, year: { $year: "$createdAt" } }, users: { $addToSet: "$userId" } } },
+              { $sort: { "_id.year": 1, "_id.month": 1 } },
+            ]);
+
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
+            const start = (page - 1) * limit;
+            const end = start + limit;
+
+            return res.status(200).json({
+              success: true,
+              data: cohortData.slice(start, end),
+              pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(cohortData.length / limit),
+                totalItems: cohortData.length,
+                limit,
+              },
+            });
+          } catch (error) {
+            logger.error("Error in cohort analysis", { error });
+            return res.status(500).json({
+              success: false,
+              message: "Error in cohort analysis",
+            });
+          }
+        },
+
+        // User Segmentation with pagination
+        userSegmentation: async (req, res) => {
+          const { segmentCriteria } = req.body;
+
+          if (!segmentCriteria) {
+            return res.status(400).json({
+              success: false,
+              message: "Segment criteria is required",
+            });
+          }
+
+          try {
+            const segments = await Analytics.aggregate([
+              { $match: segmentCriteria },
+              { $group: { _id: { userId: "$userId" }, pagesViewed: { $addToSet: "$pageName" }, totalViews: { $sum: 1 } } },
+            ]);
+
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
+            const start = (page - 1) * limit;
+            const end = start + limit;
+
+            return res.status(200).json({
+              success: true,
+              data: segments.slice(start, end),
+              pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(segments.length / limit),
+                totalItems: segments.length,
+                limit,
+              },
+            });
+          } catch (error) {
+            logger.error("Error in user segmentation", { error });
+            return res.status(500).json({
+              success: false,
+              message: "Error in user segmentation",
+            });
+          }
+        },
+
 
   // Placeholder for future Predictive Analytics with ML integration
   predictiveAnalytics: async (req, res) => {

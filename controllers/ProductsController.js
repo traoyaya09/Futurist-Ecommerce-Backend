@@ -1,231 +1,285 @@
 const Product = require('../models/ProductModel');
 const mongoose = require('mongoose');
 const { getSocketInstance } = require('../socket');
+const { adaptProduct } = require('../utils/adaptProduct');
 
-// Get all products
+// Helper to emit socket events
+const emitProductEvent = (event, data) => {
+  const io = getSocketInstance();
+  io.emit(event, data);
+};
+
+// Helper to parse price strings into numbers
+const parsePrice = (value) => {
+  if (value == null) return null;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const digits = value.replace(/[^0-9.]/g, '');
+    return digits ? parseFloat(digits) : null;
+  }
+  return null;
+};
+
+// -------------------------
+// PROGRAMMATIC HELPERS FOR AI SERVICE
+// -------------------------
+module.exports.searchProductsByQuery = async (query) => {
+  const filter = {
+    $or: [
+      { name: { $regex: query, $options: 'i' } },
+      { description: { $regex: query, $options: 'i' } },
+      { brand: { $regex: query, $options: 'i' } },
+    ],
+  };
+  const products = await Product.find(filter).limit(20);
+  return products.map(adaptProduct);
+};
+
+module.exports.getFeaturedProductsForAI = async () => {
+  const products = await Product.find({ isFeatured: true }).limit(10);
+  return products.map(adaptProduct);
+};
+
+module.exports.getProductByIdForAI = async (id) => {
+  const product = await Product.findById(id);
+  if (!product) return null;
+  return adaptProduct(product);
+};
+
+
+// Helper to normalize incoming raw payload before saving/updating
+const normalizeIncomingProduct = (raw) => {
+  if (!raw) return {};
+
+  const adapted = adaptProduct(raw);
+
+  // Always parse prices from raw or adapted values
+  const price = parsePrice(raw.price ?? raw.actual_price ?? adapted.price) ?? 0;
+  const discountPrice = parsePrice(raw.discountPrice ?? raw.discount_price ?? adapted.discountPrice) ?? null;
+
+  return {
+    name: adapted.name,
+    description: adapted.description,
+    price,
+    discountPrice,
+    category: adapted.category,
+    subCategory: adapted.subCategory || raw.sub_category || '',
+    brand: adapted.brand,
+    stock: adapted.stock ?? 0,
+    imageUrl: adapted.imageUrl,
+    link: adapted.link || raw.link || '',
+    rating: adapted.rating,
+    reviewsCount: adapted.reviewsCount,
+    isFeatured: raw.isFeatured ?? false,
+    createdAt: raw.createdAt || undefined,
+  };
+};
+
+// -------------------------
+// GET ALL PRODUCTS
+// -------------------------
 const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const { search, category, isFeatured } = req.query;
+    const filter = {};
+
+    if (category) filter.category = category;
+    if (isFeatured) filter.isFeatured = isFeatured === 'true';
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { brand: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const products = await Product.find(filter).skip(skip).limit(limit);
+    const total = await Product.countDocuments(filter);
+
     res.status(200).json({
       status: 'success',
-      data: products,
+      page,
+      totalPages: Math.ceil(total / limit),
+      totalProducts: total,
+      data: products.map(adaptProduct),
     });
   } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to fetch products: ' + error.message,
-    });
+    res.status(500).json({ status: 'error', message: 'Failed to fetch products: ' + error.message });
   }
 };
 
-// Get a product by ID
+// -------------------------
+// GET PRODUCT BY ID
+// -------------------------
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
-    if (!product)
-      return res.status(404).json({ status: 'error', message: 'Product not found' });
-    res.status(200).json({
-      status: 'success',
-      data: product,
-    });
+    const product = await Product.findById(req.params.id).select('+stock');
+    if (!product) return res.status(404).json({ status: 'error', message: 'Product not found' });
+
+    res.status(200).json({ status: 'success', data: adaptProduct(product) });
   } catch (error) {
-    if (error instanceof mongoose.Error.CastError) {
-      return res
-        .status(400)
-        .json({ status: 'error', message: 'Invalid product ID format' });
-    }
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to fetch product: ' + error.message,
-    });
+    if (error instanceof mongoose.Error.CastError)
+      return res.status(400).json({ status: 'error', message: 'Invalid product ID format' });
+    res.status(500).json({ status: 'error', message: 'Failed to fetch product: ' + error.message });
   }
 };
 
-// Create a new product
+// -------------------------
+// CREATE PRODUCT
+// -------------------------
 const createProduct = async (req, res) => {
-  const { name, description, price, category, imageUrl, featured } = req.body;
-
-  // Create product with data
-  const product = new Product({
-    name,
-    description,
-    price,
-    category,
-    imageUrl,
-    featured,
-  });
-
   try {
+    const normalizedData = normalizeIncomingProduct(req.body);
+    const product = new Product(normalizedData);
     const newProduct = await product.save();
 
-    // Emit socket event for product creation
-    const io = getSocketInstance();
-    io.emit('product:created', newProduct);
+    emitProductEvent('product:created', adaptProduct(newProduct));
 
-    res.status(201).json({
-      status: 'success',
-      message: 'Product created successfully',
-      data: newProduct,
-    });
+    res.status(201).json({ status: 'success', message: 'Product created successfully', data: adaptProduct(newProduct) });
   } catch (error) {
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Validation error: ' + error.message,
-      });
-    }
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to create product: ' + error.message,
-    });
+    if (error.name === 'ValidationError')
+      return res.status(400).json({ status: 'error', message: 'Validation error: ' + error.message });
+    res.status(500).json({ status: 'error', message: 'Failed to create product: ' + error.message });
   }
 };
 
-// Update a product by ID
+// -------------------------
+// UPDATE PRODUCT BY ID
+// -------------------------
 const updateProductById = async (req, res) => {
-  const { name, description, price, category, imageUrl, featured } = req.body;
-
   try {
-    const updatedProduct = await Product.findByIdAndUpdate(
-      req.params.id,
-      { name, description, price, category, imageUrl, featured },
-      { new: true, runValidators: true } // Run validators on update
-    );
-    if (!updatedProduct)
-      return res
-        .status(404)
-        .json({ status: 'error', message: 'Product not found' });
+    const normalizedData = normalizeIncomingProduct(req.body);
 
-    // Emit socket event for product update
-    const io = getSocketInstance();
-    io.emit('product:updated', updatedProduct);
-
-    res.status(200).json({
-      status: 'success',
-      message: 'Product updated successfully',
-      data: updatedProduct,
+    const updatedProduct = await Product.findByIdAndUpdate(req.params.id, normalizedData, {
+      new: true,
+      runValidators: true,
     });
+
+    if (!updatedProduct) return res.status(404).json({ status: 'error', message: 'Product not found' });
+
+    emitProductEvent('product:updated', adaptProduct(updatedProduct));
+
+    res.status(200).json({ status: 'success', message: 'Product updated successfully', data: adaptProduct(updatedProduct) });
   } catch (error) {
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Validation error: ' + error.message,
-      });
-    }
-    if (error instanceof mongoose.Error.CastError) {
-      return res
-        .status(400)
-        .json({ status: 'error', message: 'Invalid product ID format' });
-    }
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to update product: ' + error.message,
-    });
+    if (error.name === 'ValidationError')
+      return res.status(400).json({ status: 'error', message: 'Validation error: ' + error.message });
+    if (error instanceof mongoose.Error.CastError)
+      return res.status(400).json({ status: 'error', message: 'Invalid product ID format' });
+    res.status(500).json({ status: 'error', message: 'Failed to update product: ' + error.message });
   }
 };
 
-// Delete a product by ID
+// -------------------------
+// DELETE PRODUCT BY ID
+// -------------------------
 const deleteProductById = async (req, res) => {
   try {
     const deletedProduct = await Product.findByIdAndDelete(req.params.id);
-    if (!deletedProduct)
-      return res
-        .status(404)
-        .json({ status: 'error', message: 'Product not found' });
+    if (!deletedProduct) return res.status(404).json({ status: 'error', message: 'Product not found' });
 
-    // Emit socket event for product deletion
-    const io = getSocketInstance();
-    io.emit('product:deleted', req.params.id);
+    emitProductEvent('product:deleted', req.params.id);
 
-    res.status(200).json({
-      status: 'success',
-      message: 'Product deleted successfully',
-      data: deletedProduct,
-    });
+    res.status(200).json({ status: 'success', message: 'Product deleted successfully', data: adaptProduct(deletedProduct) });
   } catch (error) {
-    if (error instanceof mongoose.Error.CastError) {
-      return res
-        .status(400)
-        .json({ status: 'error', message: 'Invalid product ID format' });
-    }
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to delete product: ' + error.message,
-    });
+    if (error instanceof mongoose.Error.CastError)
+      return res.status(400).json({ status: 'error', message: 'Invalid product ID format' });
+    res.status(500).json({ status: 'error', message: 'Failed to delete product: ' + error.message });
   }
 };
 
-// Get products by category
+// -------------------------
+// GET PRODUCTS BY CATEGORY
+// -------------------------
 const getProductsByCategory = async (req, res) => {
-  const { category } = req.params;
   try {
-    const products = await Product.find({ category });
-    if (products.length === 0) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'No products found in this category',
-      });
-    }
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const products = await Product.find({ category: req.params.category }).skip(skip).limit(limit);
+    const total = await Product.countDocuments({ category: req.params.category });
+
+    if (products.length === 0)
+      return res.status(404).json({ status: 'error', message: 'No products found in this category' });
+
     res.status(200).json({
       status: 'success',
-      data: products,
+      page,
+      totalPages: Math.ceil(total / limit),
+      totalProducts: total,
+      data: products.map(adaptProduct),
     });
   } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to fetch products by category: ' + error.message,
-    });
+    res.status(500).json({ status: 'error', message: 'Failed to fetch products by category: ' + error.message });
   }
 };
 
-// Search for products by name or description
+// -------------------------
+// SEARCH PRODUCTS
+// -------------------------
 const searchProducts = async (req, res) => {
-  const { query } = req.query; // Assuming search term is passed via query string
   try {
-    const products = await Product.find({
-      $or: [
-        { name: { $regex: query, $options: 'i' } }, // Case-insensitive search
-        { description: { $regex: query, $options: 'i' } },
-      ],
-    });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    const { query } = req.query;
 
-    if (products.length === 0) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'No products found matching the search criteria',
-      });
-    }
+    if (!query) return res.status(400).json({ status: 'error', message: 'Search query is required' });
+
+    const filter = {
+      $or: [
+        { name: { $regex: query, $options: 'i' } },
+        { description: { $regex: query, $options: 'i' } },
+        { brand: { $regex: query, $options: 'i' } },
+      ],
+    };
+
+    const products = await Product.find(filter).skip(skip).limit(limit);
+    const total = await Product.countDocuments(filter);
+
+    if (products.length === 0)
+      return res.status(404).json({ status: 'error', message: 'No products found matching the search criteria' });
+
     res.status(200).json({
       status: 'success',
-      data: products,
+      page,
+      totalPages: Math.ceil(total / limit),
+      totalProducts: total,
+      data: products.map(adaptProduct),
     });
   } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to search products: ' + error.message,
-    });
+    res.status(500).json({ status: 'error', message: 'Failed to search products: ' + error.message });
   }
 };
 
-// Get featured products
+// -------------------------
+// GET FEATURED PRODUCTS
+// -------------------------
 const getFeaturedProducts = async (req, res) => {
   try {
-    const featuredProducts = await Product.find({ featured: true });
-    if (featuredProducts.length === 0) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'No featured products found',
-      });
-    }
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const featuredProducts = await Product.find({ isFeatured: true }).skip(skip).limit(limit);
+    const total = await Product.countDocuments({ isFeatured: true });
+
+    if (featuredProducts.length === 0)
+      return res.status(404).json({ status: 'error', message: 'No featured products found' });
+
     res.status(200).json({
       status: 'success',
-      data: featuredProducts,
+      page,
+      totalPages: Math.ceil(total / limit),
+      totalProducts: total,
+      data: featuredProducts.map(adaptProduct),
     });
   } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to fetch featured products: ' + error.message,
-    });
+    res.status(500).json({ status: 'error', message: 'Failed to fetch featured products: ' + error.message });
   }
 };
 

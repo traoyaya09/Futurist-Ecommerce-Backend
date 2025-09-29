@@ -5,28 +5,36 @@ const { authorize } = require('../middleware/authorization');
 
 const router = express.Router();
 
-// Get all products with optional filters, sorting, and pagination (Public Route)
-router.get('/', productController.getAllProducts);
+// ------------------------------
+// Public Routes (specific first)
+// ------------------------------
 
-// Get a single product by ID (Public Route)
-router.get('/:id', productController.getProductById);
+// Get featured products
+router.get('/featured', productController.getFeaturedProducts);
 
-// Create a new product (Admin Only)
-router.post('/', authenticate, authorize('Admin'), productController.createProduct);
-
-// Update a product by ID (Admin Only)
-router.put('/:id', authenticate, authorize('Admin'), productController.updateProductById);
-
-// Delete a product by ID (Admin Only)
-router.delete('/:id', authenticate, authorize('Admin'), productController.deleteProductById);
-
-// Get products by category (Public Route)
-router.get('/category/:category', productController.getProductsByCategory);
-
-// Search for products by name or description (Public Route)
+// Search for products
 router.get('/search', productController.searchProducts);
 
-// Get featured products (Public Route)
-router.get('/featured', productController.getFeaturedProducts);
+// Get products by category
+router.get('/category/:category', productController.getProductsByCategory);
+
+// Get all products
+router.get('/', productController.getAllProducts);
+
+// Get a single product by ID (generic route, last)
+router.get('/:id', productController.getProductById);
+
+// ------------------------------
+// Admin Routes (protected)
+// ------------------------------
+
+// Create a new product
+router.post('/', authenticate, authorize('Admin'), productController.createProduct);
+
+// Update a product by ID
+router.put('/:id', authenticate, authorize('Admin'), productController.updateProductById);
+
+// Delete a product by ID
+router.delete('/:id', authenticate, authorize('Admin'), productController.deleteProductById);
 
 module.exports = router;

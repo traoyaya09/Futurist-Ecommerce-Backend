@@ -1,3 +1,4 @@
+// config/config.js
 require('dotenv').config(); // Load environment variables
 
 module.exports = {
@@ -9,18 +10,19 @@ module.exports = {
   },
 
   database: {
-    mongoURI: process.env.MONGO_URI,
+    mongoURI: process.env.MONGO_URI || "mongodb://localhost:27017/futurist",
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET,
-    expiresIn: process.env.JWT_EXPIRES_IN || "1d", 
-    refreshSecret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+    secret: process.env.JWT_SECRET || "supersecretkey",
+    expiresIn: process.env.JWT_EXPIRES_IN || "1d",
+    refreshSecret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || "supersecretkey",
   },
 
   cors: {
     allowedOrigins: [
-      "http://localhost:3000",
+      "http://localhost:5173", // Vite dev server
+      "http://localhost:3000", // fallback dev
       "https://futurist-ecommerce-frontend.vercel.app",
       "https://futurist-ecommerce-frontend.onrender.com",
       "https://your-production-frontend.com", // add your real frontend URL
@@ -41,7 +43,7 @@ module.exports = {
   },
 
   ngrok: {
-    authToken: process.env.NGROK_AUTH_TOKEN,
+    authToken: process.env.NGROK_AUTH_TOKEN || "",
   },
 
   logging: {
@@ -58,8 +60,8 @@ module.exports = {
   email: {
     host: process.env.SMTP_HOST || "smtp.gmail.com",
     port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587,
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
+    user: process.env.SMTP_USER || "",
+    pass: process.env.SMTP_PASS || "",
     from: process.env.FROM_EMAIL || "no-reply@futurist.com",
   },
 

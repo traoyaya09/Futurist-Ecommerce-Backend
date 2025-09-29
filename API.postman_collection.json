@@ -1,0 +1,115 @@
+{
+  "info": {
+    "name": "Shareshiba AI Cart API",
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-1234567890ef",
+    "description": "Test AIService and CartController endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "AI - Add to Cart",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"input\": \"Add 2 of product 64f5c9d2a1234b00123abcd5 to my cart\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/ai/query", "host": ["{{baseUrl}}"], "path": ["api","ai","query"] }
+      }
+    },
+    {
+      "name": "AI - Remove from Cart",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"input\": \"Remove product 64f5c9d2a1234b00123abcd5 from my cart\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/ai/query", "host": ["{{baseUrl}}"], "path": ["api","ai","query"] }
+      }
+    },
+    {
+      "name": "AI - Apply Promo Code",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"input\": \"Apply promo code SUMMER10\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/ai/query", "host": ["{{baseUrl}}"], "path": ["api","ai","query"] }
+      }
+    },
+    {
+      "name": "AI - Apply Discount",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"input\": \"Apply a discount of 15\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/ai/query", "host": ["{{baseUrl}}"], "path": ["api","ai","query"] }
+      }
+    },
+    {
+      "name": "AI - Merge Guest Cart",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"input\": \"Merge my guest cart 64f5d9e2a1234b00123abcf7 into my account\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/ai/query", "host": ["{{baseUrl}}"], "path": ["api","ai","query"] }
+      }
+    },
+    {
+      "name": "AI - Checkout",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"input\": \"I want to checkout now\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/ai/query", "host": ["{{baseUrl}}"], "path": ["api","ai","query"] }
+      }
+    },
+    {
+      "name": "AI - Search Products",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwtToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"input\": \"Show me featured electronics products\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/ai/query", "host": ["{{baseUrl}}"], "path": ["api","ai","query"] }
+      }
+    }
+  ]
+}

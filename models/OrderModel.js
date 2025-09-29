@@ -1,34 +1,35 @@
 const mongoose = require('mongoose');
 
-// Schema for each order item, including product reference and price at time of order
 const orderItemSchema = new mongoose.Schema({
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
     quantity: { type: Number, required: true },
-    price: { type: Number, required: true },  // Store the price at the time of the order
-    discount: { type: Number, default: 0 },  // Optional discount per item
-    totalItemPrice: { type: Number, required: true }  // Calculated total price per item (quantity * price - discount)
+    price: { type: Number, required: true },
+    discount: { type: Number, default: 0 },
+    totalItemPrice: { type: Number, required: true }
 }, { _id: false });
 
-// Main order schema
 const orderSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    items: [orderItemSchema],  // List of ordered items
-    totalAmount: { type: Number, required: true },  // Total amount for the order
-    discountAmount: { type: Number, default: 0 },  // Total discount applied to the order
-    netAmount: { type: Number, required: true },  // Net payable amount (totalAmount - discountAmount)
+    items: [orderItemSchema],
+    totalAmount: { type: Number, required: true },
+    discountAmount: { type: Number, default: 0 },
+    netAmount: { type: Number, required: true },
     paymentMethod: { type: String, required: true, enum: ['Credit Card', 'PayPal', 'Cash on Delivery', 'Bank Transfer'] },
-    paymentStatus: { type: String, enum: ['Pending', 'Paid', 'Failed'], default: 'Pending' },  // Track payment status
-    shippingAddress: { type: String, required: true },  // Shipping address for the order
-    shippingStatus: { type: String, enum: ['Not Shipped', 'Shipped', 'Delivered'], default: 'Not Shipped' },  // Track shipping status
-    status: { type: String, enum: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'], default: 'Pending' },  // General order status
-    trackingNumber: { type: String, default: null },  // Shipping tracking number
-    estimatedDelivery: { type: Date },  // Estimated delivery date
-    cancellationReason: { type: String, default: null },  // Reason for cancellation if applicable
-    refundStatus: { type: String, enum: ['None', 'Requested', 'Completed'], default: 'None' },  // Refund status for cancelled orders
-    // Add other fields like tax, currency, or additional shipping info as needed
+    paymentStatus: { type: String, enum: ['Pending', 'Paid', 'Failed'], default: 'Pending' },
+    shippingAddress: { type: String, required: true },
+    shippingStatus: { type: String, enum: ['Not Shipped', 'Shipped', 'Delivered'], default: 'Not Shipped' },
+    status: { type: String, enum: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'], default: 'Pending' },
+    trackingNumbers: [{ type: String }], // multi-package support
+    shipments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Shipping' }], // link to Shipping objects
+    estimatedDelivery: { type: Date },
+    shippingCost: { type: Number, default: 0 }, // total shipping cost for order
+    insurance: { type: Boolean, default: false },
+    insuranceValue: { type: Number, default: 0 },
+    cancellationReason: { type: String, default: null },
+    refundStatus: { type: String, enum: ['None', 'Requested', 'Completed'], default: 'None' },
 }, { timestamps: true });
 
-// Static method to calculate total price, discounts, and net amount
+// Static method to calculate totals
 orderSchema.statics.calculateOrderTotals = function(items) {
     let totalAmount = 0;
     let discountAmount = 0;
@@ -44,18 +45,18 @@ orderSchema.statics.calculateOrderTotals = function(items) {
     return { totalAmount, discountAmount, netAmount };
 };
 
-// Middleware to auto-calculate total and net amounts before saving the order
+// Pre-save hook
 orderSchema.pre('save', function (next) {
-    const { totalAmount, discountAmount, netAmount } = Order.calculateOrderTotals(this.items);
+    const { totalAmount, discountAmount, netAmount } = this.constructor.calculateOrderTotals(this.items);
     this.totalAmount = totalAmount;
     this.discountAmount = discountAmount;
     this.netAmount = netAmount;
     next();
 });
 
-// Indexes for optimization
-orderSchema.index({ userId: 1, createdAt: -1 });  // Index on user and order creation date for faster queries
-orderSchema.index({ status: 1 });  // Index on status for filtering orders by status
+// Indexes
+orderSchema.index({ userId: 1, createdAt: -1 });
+orderSchema.index({ status: 1 });
 
 const Order = mongoose.model('Order', orderSchema);
 

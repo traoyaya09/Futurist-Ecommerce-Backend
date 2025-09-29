@@ -161,15 +161,34 @@ const userController = {
     },
 
     // Admin can get all users (Optional, if applicable)
-    getAllUsers: async (req, res) => {
-        try {
-            const users = await userModel.find().select("-password");
-            res.status(200).json(users);
-        } catch (error) {
-            console.error("Error fetching users:", error);
-            res.status(500).json({ message: "Server error" });
-        }
-    },
+    // Admin can get all users (with pagination)
+getAllUsers: async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        const users = await userModel.find()
+            .select("-password")
+            .skip((page - 1) * limit)
+            .limit(limit);
+
+        const totalItems = await userModel.countDocuments();
+
+        res.status(200).json({
+            data: users,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(totalItems / limit),
+                totalItems,
+                limit,
+            },
+        });
+    } catch (error) {
+        console.error("Error fetching users:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+},
+
 
     getUserById: async (req, res) => {
         try {
