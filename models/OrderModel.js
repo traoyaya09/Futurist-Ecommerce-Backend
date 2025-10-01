@@ -16,18 +16,28 @@ const orderSchema = new mongoose.Schema({
     netAmount: { type: Number, required: true },
     paymentMethod: { type: String, required: true, enum: ['Credit Card', 'PayPal', 'Cash on Delivery', 'Bank Transfer'] },
     paymentStatus: { type: String, enum: ['Pending', 'Paid', 'Failed'], default: 'Pending' },
-    shippingAddress: { type: String, required: true },
+
+    // ✅ now an object
+    shippingAddress: {
+        name: { type: String, required: true },
+        address: { type: String, required: true },
+        city: { type: String, required: true },
+        postalCode: { type: String, required: true },
+        phone: { type: String, required: true }
+    },
+
     shippingStatus: { type: String, enum: ['Not Shipped', 'Shipped', 'Delivered'], default: 'Not Shipped' },
     status: { type: String, enum: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'], default: 'Pending' },
-    trackingNumbers: [{ type: String }], // multi-package support
-    shipments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Shipping' }], // link to Shipping objects
+    trackingNumbers: [{ type: String }],
+    shipments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Shipping' }],
     estimatedDelivery: { type: Date },
-    shippingCost: { type: Number, default: 0 }, // total shipping cost for order
+    shippingCost: { type: Number, default: 0 },
     insurance: { type: Boolean, default: false },
     insuranceValue: { type: Number, default: 0 },
     cancellationReason: { type: String, default: null },
     refundStatus: { type: String, enum: ['None', 'Requested', 'Completed'], default: 'None' },
 }, { timestamps: true });
+
 
 // Static method to calculate totals
 orderSchema.statics.calculateOrderTotals = function(items) {

@@ -1,43 +1,69 @@
-// utils/adaptProduct.js (Node-compatible version for backend)
 function adaptProduct(raw) {
   if (!raw) return null;
 
-  const id =
-    raw.id ||
-    raw._id?.toString?.() ||
-    raw._id?.$oid ||
-    (typeof raw._id === "string" ? raw._id : undefined);
-
   const parsePrice = (value) => {
-    if (!value) return null;
-    if (typeof value === "number") return value;
-    if (typeof value === "string") {
-      const digits = value.replace(/[^0-9.]/g, "");
+    if (value == null) return null;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const digits = value.replace(/[^0-9.]/g, '');
       return digits ? parseFloat(digits) : null;
     }
     return null;
   };
 
-  const parsedPrice = parsePrice(raw.price) ?? parsePrice(raw.actual_price);
-  const parsedDiscount = parsePrice(raw.discountPrice) ?? parsePrice(raw.discount_price);
-  const finalPrice = parsedPrice ?? parsedDiscount ?? 0;
+  const parseNumberString = (value) => {
+    if (value == null) return 0;
+    if (typeof value === 'number') return value;
+    return Number(value.toString().replace(/,/g, '')) || 0;
+  };
+
+  const id = raw._id?.toString() || raw.id?.toString() || '';
+
+  const price = parsePrice(raw.actual_price ?? raw.price);
+  const discountPrice = parsePrice(raw.discount_price ?? raw.discountPrice);
 
   return {
+    _id: id,
     id,
-    name: raw.name || "Unnamed Product",
-    description: raw.description || raw.sub_category || "No description available",
-    price: finalPrice,
-    discountPrice: parsedDiscount,
-    category: raw.category || raw.main_category || "Uncategorized",
-    brand: raw.brand || "",
+    name: raw.name || 'Unnamed Product',
+    description: raw.description || 'No description available',
+    price: price ?? null,
+    discountPrice: discountPrice ?? null,
+    category: raw.main_category || raw.category || 'Uncategorized',
+    subCategory: raw.sub_category || raw.subCategory || '',
+    brand: raw.brand || '',
     stock: raw.stock ?? 0,
-    imageUrl: raw.imageUrl || raw.image || "https://via.placeholder.com/150",
-    rating: raw.rating || raw.ratings || 0,
-    reviewsCount: raw.reviewsCount ?? raw.no_of_ratings ?? 0,
+    imageUrl: raw.imageUrl || raw.image || 'https://via.placeholder.com/150',
+    rating: raw.rating ?? raw.ratings ?? 0,
+    reviewsCount: parseNumberString(raw.reviewsCount ?? raw.no_of_ratings),
     reviews: raw.reviews || [],
-    createdAt: raw.createdAt || null,
+    link: raw.link || '',
+    isFeatured: raw.isFeatured ?? false,
+    createdAt: raw.createdAt || raw._id?.getTimestamp?.() || new Date(),
     promotion: raw.promotion || null,
   };
 }
 
-module.exports = { adaptProduct };
+function normalizeIncomingProduct(raw) {
+  if (!raw) return {};
+
+  const adapted = adaptProduct(raw);
+
+  // Infer category if missing
+  let category = adapted.category;
+  if (!category || category === 'Uncategorized') {
+    category = adapted.subCategory || (adapted.name.match(/Air Conditioner|AC/i) ? 'Air Conditioners' : 'Other');
+  }
+
+  return {
+    ...adapted,
+    price: adapted.price ?? null,
+    discountPrice: adapted.discountPrice ?? null,
+    category,
+    stock: adapted.stock ?? 0,
+    rating: adapted.rating ?? 0,
+    reviewsCount: adapted.reviewsCount ?? 0,
+  };
+}
+
+module.exports = { adaptProduct, normalizeIncomingProduct };

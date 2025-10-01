@@ -7,7 +7,12 @@ const packageSchema = new mongoose.Schema({
     width: { type: Number, required: true },
     height: { type: Number, required: true }
   },
-  trackingNumber: { type: String, required: true },
+  trackingNumber: {
+    type: String,
+    default: null, // allow null initially
+    unique: true,
+    sparse: true   // ✅ allows multiple nulls without duplicate key errors
+  },
 }, { _id: false });
 
 const shippingSchema = new mongoose.Schema({
@@ -37,16 +42,15 @@ const shippingSchema = new mongoose.Schema({
   deliveredAt: { type: Date }
 }, { timestamps: true });
 
-// Populate trackingNumbers from packages
+// Auto-populate trackingNumbers from packages
 shippingSchema.pre('save', function(next) {
-  this.trackingNumbers = this.packages.map(pkg => pkg.trackingNumber);
+  this.trackingNumbers = this.packages.map(pkg => pkg.trackingNumber).filter(Boolean);
   next();
 });
 
 // Indexes
 shippingSchema.index({ user: 1, status: 1 });
-shippingSchema.index({ "packages.trackingNumber": 1 });
+shippingSchema.index({ "packages.trackingNumber": 1, sparse: true }); // ✅ sparse ensures no duplicate error on null
 
 const Shipping = mongoose.model('Shipping', shippingSchema);
-
 module.exports = Shipping;

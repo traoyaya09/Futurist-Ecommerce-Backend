@@ -1,23 +1,14 @@
+// controllers/productController.js
 const Product = require('../models/ProductModel');
 const mongoose = require('mongoose');
 const { getSocketInstance } = require('../socket');
-const { adaptProduct } = require('../utils/adaptProduct');
+const { normalizeIncomingProduct } = require('../utils/adaptProduct');
+
 
 // Helper to emit socket events
 const emitProductEvent = (event, data) => {
   const io = getSocketInstance();
   io.emit(event, data);
-};
-
-// Helper to parse price strings into numbers
-const parsePrice = (value) => {
-  if (value == null) return null;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const digits = value.replace(/[^0-9.]/g, '');
-    return digits ? parseFloat(digits) : null;
-  }
-  return null;
 };
 
 // -------------------------
@@ -32,52 +23,21 @@ module.exports.searchProductsByQuery = async (query) => {
     ],
   };
   const products = await Product.find(filter).limit(20);
-  return products.map(adaptProduct);
+  return products.map(Product.normalizeIncoming);
 };
 
 module.exports.getFeaturedProductsForAI = async () => {
   const products = await Product.find({ isFeatured: true }).limit(10);
-  return products.map(adaptProduct);
+  return products.map(Product.normalizeIncoming);
 };
 
 module.exports.getProductByIdForAI = async (id) => {
   const product = await Product.findById(id);
   if (!product) return null;
-  return adaptProduct(product);
+  return Product.normalizeIncoming(product);
 };
 
 
-// Helper to normalize incoming raw payload before saving/updating
-const normalizeIncomingProduct = (raw) => {
-  if (!raw) return {};
-
-  const adapted = adaptProduct(raw);
-
-  // Always parse prices from raw or adapted values
-  const price = parsePrice(raw.price ?? raw.actual_price ?? adapted.price) ?? 0;
-  const discountPrice = parsePrice(raw.discountPrice ?? raw.discount_price ?? adapted.discountPrice) ?? null;
-
-  return {
-    name: adapted.name,
-    description: adapted.description,
-    price,
-    discountPrice,
-    category: adapted.category,
-    subCategory: adapted.subCategory || raw.sub_category || '',
-    brand: adapted.brand,
-    stock: adapted.stock ?? 0,
-    imageUrl: adapted.imageUrl,
-    link: adapted.link || raw.link || '',
-    rating: adapted.rating,
-    reviewsCount: adapted.reviewsCount,
-    isFeatured: raw.isFeatured ?? false,
-    createdAt: raw.createdAt || undefined,
-  };
-};
-
-// -------------------------
-// GET ALL PRODUCTS
-// -------------------------
 const getAllProducts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -105,22 +65,27 @@ const getAllProducts = async (req, res) => {
       page,
       totalPages: Math.ceil(total / limit),
       totalProducts: total,
-      data: products.map(adaptProduct),
+      data: products.map(Product.normalizeIncoming),
     });
   } catch (error) {
     res.status(500).json({ status: 'error', message: 'Failed to fetch products: ' + error.message });
   }
 };
 
+
 // -------------------------
 // GET PRODUCT BY ID
 // -------------------------
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).select('+stock');
-    if (!product) return res.status(404).json({ status: 'error', message: 'Product not found' });
+    const product = await Product.findById(req.params.id);
+    if (!product)
+      return res.status(404).json({ status: 'error', message: 'Product not found' });
 
-    res.status(200).json({ status: 'success', data: adaptProduct(product) });
+    res.status(200).json({
+      status: 'success',
+      data: normalizeIncomingProduct(product),
+    });
   } catch (error) {
     if (error instanceof mongoose.Error.CastError)
       return res.status(400).json({ status: 'error', message: 'Invalid product ID format' });
@@ -137,9 +102,13 @@ const createProduct = async (req, res) => {
     const product = new Product(normalizedData);
     const newProduct = await product.save();
 
-    emitProductEvent('product:created', adaptProduct(newProduct));
+    emitProductEvent('product:created', normalizeIncomingProduct(newProduct));
 
-    res.status(201).json({ status: 'success', message: 'Product created successfully', data: adaptProduct(newProduct) });
+    res.status(201).json({
+      status: 'success',
+      message: 'Product created successfully',
+      data: normalizeIncomingProduct(newProduct),
+    });
   } catch (error) {
     if (error.name === 'ValidationError')
       return res.status(400).json({ status: 'error', message: 'Validation error: ' + error.message });
@@ -153,17 +122,21 @@ const createProduct = async (req, res) => {
 const updateProductById = async (req, res) => {
   try {
     const normalizedData = normalizeIncomingProduct(req.body);
-
     const updatedProduct = await Product.findByIdAndUpdate(req.params.id, normalizedData, {
       new: true,
       runValidators: true,
     });
 
-    if (!updatedProduct) return res.status(404).json({ status: 'error', message: 'Product not found' });
+    if (!updatedProduct)
+      return res.status(404).json({ status: 'error', message: 'Product not found' });
 
-    emitProductEvent('product:updated', adaptProduct(updatedProduct));
+    emitProductEvent('product:updated', normalizeIncomingProduct(updatedProduct));
 
-    res.status(200).json({ status: 'success', message: 'Product updated successfully', data: adaptProduct(updatedProduct) });
+    res.status(200).json({
+      status: 'success',
+      message: 'Product updated successfully',
+      data: normalizeIncomingProduct(updatedProduct),
+    });
   } catch (error) {
     if (error.name === 'ValidationError')
       return res.status(400).json({ status: 'error', message: 'Validation error: ' + error.message });
@@ -179,11 +152,16 @@ const updateProductById = async (req, res) => {
 const deleteProductById = async (req, res) => {
   try {
     const deletedProduct = await Product.findByIdAndDelete(req.params.id);
-    if (!deletedProduct) return res.status(404).json({ status: 'error', message: 'Product not found' });
+    if (!deletedProduct)
+      return res.status(404).json({ status: 'error', message: 'Product not found' });
 
     emitProductEvent('product:deleted', req.params.id);
 
-    res.status(200).json({ status: 'success', message: 'Product deleted successfully', data: adaptProduct(deletedProduct) });
+    res.status(200).json({
+      status: 'success',
+      message: 'Product deleted successfully',
+      data: normalizeIncomingProduct(deletedProduct),
+    });
   } catch (error) {
     if (error instanceof mongoose.Error.CastError)
       return res.status(400).json({ status: 'error', message: 'Invalid product ID format' });
@@ -200,8 +178,9 @@ const getProductsByCategory = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const products = await Product.find({ category: req.params.category }).skip(skip).limit(limit);
-    const total = await Product.countDocuments({ category: req.params.category });
+    const filter = { category: req.params.category };
+    const products = await Product.find(filter).skip(skip).limit(limit);
+    const total = await Product.countDocuments(filter);
 
     if (products.length === 0)
       return res.status(404).json({ status: 'error', message: 'No products found in this category' });
@@ -211,7 +190,7 @@ const getProductsByCategory = async (req, res) => {
       page,
       totalPages: Math.ceil(total / limit),
       totalProducts: total,
-      data: products.map(adaptProduct),
+      data: products.map(normalizeIncomingProduct),
     });
   } catch (error) {
     res.status(500).json({ status: 'error', message: 'Failed to fetch products by category: ' + error.message });
@@ -228,7 +207,8 @@ const searchProducts = async (req, res) => {
     const skip = (page - 1) * limit;
     const { query } = req.query;
 
-    if (!query) return res.status(400).json({ status: 'error', message: 'Search query is required' });
+    if (!query)
+      return res.status(400).json({ status: 'error', message: 'Search query is required' });
 
     const filter = {
       $or: [
@@ -249,7 +229,7 @@ const searchProducts = async (req, res) => {
       page,
       totalPages: Math.ceil(total / limit),
       totalProducts: total,
-      data: products.map(adaptProduct),
+      data: products.map(normalizeIncomingProduct),
     });
   } catch (error) {
     res.status(500).json({ status: 'error', message: 'Failed to search products: ' + error.message });
@@ -265,10 +245,11 @@ const getFeaturedProducts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const featuredProducts = await Product.find({ isFeatured: true }).skip(skip).limit(limit);
-    const total = await Product.countDocuments({ isFeatured: true });
+    const filter = { isFeatured: true };
+    const products = await Product.find(filter).skip(skip).limit(limit);
+    const total = await Product.countDocuments(filter);
 
-    if (featuredProducts.length === 0)
+    if (products.length === 0)
       return res.status(404).json({ status: 'error', message: 'No featured products found' });
 
     res.status(200).json({
@@ -276,13 +257,16 @@ const getFeaturedProducts = async (req, res) => {
       page,
       totalPages: Math.ceil(total / limit),
       totalProducts: total,
-      data: featuredProducts.map(adaptProduct),
+      data: products.map(normalizeIncomingProduct),
     });
   } catch (error) {
     res.status(500).json({ status: 'error', message: 'Failed to fetch featured products: ' + error.message });
   }
 };
 
+// -------------------------
+// Export Controller
+// -------------------------
 module.exports = {
   getAllProducts,
   getProductById,

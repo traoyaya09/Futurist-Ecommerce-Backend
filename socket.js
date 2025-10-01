@@ -7,6 +7,9 @@ const { normalizeCart } = require("./utils/normalizeCart");
 
 let io;
 
+/**
+ * Initialize socket.io server
+ */
 const initSocket = (server) => {
   const { frontends } = getOrigins(config.app.environment);
 
@@ -34,10 +37,14 @@ const initSocket = (server) => {
   io.on("connection", (socket) => {
     console.log("⚡ User connected:", socket.id, socket.user?.id);
 
-    socket.on("order:created", (order) => {
-      io.emit("order:created", order);
-    });
+    // Join private room for user-specific events
+    if (socket.user?.id) {
+      const userRoom = `user:${socket.user.id}`;
+      socket.join(userRoom);
+      console.log(`User ${socket.user.id} joined room ${userRoom}`);
+    }
 
+    // Example global events
     socket.on("chat:sendMessage", (msg) => {
       io.emit("chat:newMessage", msg);
     });
@@ -48,20 +55,27 @@ const initSocket = (server) => {
   });
 };
 
+/**
+ * Get socket.io instance
+ */
 const getSocketInstance = () => {
   if (!io) throw new Error("Socket.io not initialized!");
   return io;
 };
 
-// 🔑 Normalized emit helpers
+/**
+ * Emit updated cart to frontend
+ */
 const emitCartUpdated = (cartDoc) => {
   const normalized = normalizeCart(cartDoc);
   io.emit("cart:updated", normalized);
-  return normalized; // handy if controller also needs it
+  return normalized;
 };
 
+/**
+ * Emit checkout completed (order created) to user
+ */
 const emitCheckoutCompleted = (orderDoc) => {
-  // basic normalization for order
   const order = orderDoc.toObject ? orderDoc.toObject() : orderDoc;
   const normalized = {
     ...order,
@@ -77,8 +91,26 @@ const emitCheckoutCompleted = (orderDoc) => {
         : { _id: null, name: "Unnamed Product", price: 0, imageUrl: "/placeholder.png" },
     })),
   };
-  io.emit("cart:checkoutCompleted", normalized);
+
+  // Emit to the specific user who placed the order
+  if (order.user) {
+    const userRoom = `user:${order.user}`;
+    io.to(userRoom).emit("order:created", normalized);
+  }
+
   return normalized;
+};
+
+/**
+ * Emit order updates (status changes like Shipped / Delivered)
+ */
+const emitOrderUpdated = (orderDoc) => {
+  const order = orderDoc.toObject ? orderDoc.toObject() : orderDoc;
+  if (order.user) {
+    const userRoom = `user:${order.user}`;
+    io.to(userRoom).emit("order:updated", order);
+  }
+  return order;
 };
 
 module.exports = {
@@ -86,4 +118,5 @@ module.exports = {
   getSocketInstance,
   emitCartUpdated,
   emitCheckoutCompleted,
+  emitOrderUpdated,
 };
