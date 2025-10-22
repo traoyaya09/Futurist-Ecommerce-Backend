@@ -1,0 +1,52 @@
+# Core
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+
+# MongoDB
+pymongo
+
+# NLP / embeddings
+sentence-transformers
+torch
+torchvision
+transformers
+clip-anytorch
+Pillow
+numpy
+
+# Scientific stack
+scipy
+scikit-learn
+imbalanced-learn
+xgboost
+matplotlib
+seaborn
+numba
+pywavelets
+joblib
+
+# Utilities
+requests
+tqdm
+
+# SpaCy (model downloaded separately)
+spacy
+
+# TensorFlow ecosystem
+tensorflow
+tensorboard
+h5py
+absl-py
+ml-dtypes
+opt_einsum
+google-pasta
+gast
+
+# Extra
+ftfy
+safetensors
+sympy
+typing-extensions
+starlette

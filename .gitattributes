@@ -1,0 +1,4 @@
+# Track AI model files with LFS
+futurist_recomendation/text_embeddings/*
+futurist_recomendation/image_embeddings/*
+futurist_recomendation/models/*

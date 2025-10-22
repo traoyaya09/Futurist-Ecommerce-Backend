@@ -1,0 +1,71 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# VSCode settings
+.vscode/
+
+# Logs
+logs/
+*.log
+log.txt
+
+# Environment variables
+.env
+
+# Python cache
+**/__pycache__/
+*.pyc
+
+# Large AI-related files
+futurist_recomendation/data/
+futurist_recomendation/image_embeddings/
+futurist_recomendation/models/
+futurist_recomendation/text_embeddings/
+
+# futurist_customer_seg/futurist/*.py
+# futurist_fraud_detection/futurist/*.py
+
+# Backup or database files
+models/*.sql
+models/*.mwb
+*.sqlite
+/db/
+
+# OS files
+.DS_Store
+Thumbs.db
+._*
+
+# Runtime/temp files
+/tmp
+*.tmp
+*.swp
+pids/
+*.pid
+*.pid.lock
+
+# Uploaded files
+/public/uploads/
+public/images/
+
+# Build artifacts
+dist/
+build/
+*.bundle.js
+
+# IDE-specific files
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Miscellaneous
+futurist.zip
+futurist_credentials.csv
+**/.cache/
+backend\futurist_recomendation

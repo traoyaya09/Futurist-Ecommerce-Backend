@@ -1,0 +1,241 @@
+{
+  "info": {
+    "name": "Hybrid Recommendation API Full Stress Test with CSV Export (All Endpoints)",
+    "_postman_id": "stress-csv-002",
+    "description": "Stress test for all 4 Hybrid Recommendation API endpoints with automated CSV-exportable metrics using Newman reporters.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Single Recommendations Stress Test",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": { "raw": "http://localhost:8000/recommendations", "protocol": "http", "host": ["localhost"], "port": "8000", "path": ["recommendations"] }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "pm.environment.set('single_metrics', JSON.stringify({success:0,fail:0,times:[]}));",
+              "const queries = ['shoes','jackets','hats','backpacks','smartphones','','random!@#'];",
+              "const images = [null,'https://via.placeholder.com/150','invalid_base64','data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA...'];",
+              "const concurrentRequests = 50;",
+              "const requests = [];",
+              "for(let i=0;i<concurrentRequests;i++){",
+              "    const payload = {",
+              "        userId: 'user_' + Math.floor(Math.random()*1000000),",
+              "        query: queries[Math.floor(Math.random()*queries.length)],",
+              "        image: images[Math.floor(Math.random()*images.length)],",
+              "        limit: Math.floor(Math.random()*45)+5,",
+              "        page: 1",
+              "    };",
+              "    requests.push(new Promise((resolve,reject)=>{",
+              "        const start = Date.now();",
+              "        pm.sendRequest({",
+              "            url:'http://localhost:8000/recommendations',",
+              "            method:'POST',",
+              "            header:{'Content-Type':'application/json'},",
+              "            body:{mode:'raw', raw: JSON.stringify(payload)}",
+              "        }, (err,res)=>{",
+              "            const duration = Date.now() - start;",
+              "            let metrics = JSON.parse(pm.environment.get('single_metrics'));",
+              "            metrics.times.push(duration);",
+              "            if(err){ metrics.fail++; reject(err); }",
+              "            else {",
+              "                try{ const json = res.json(); if(json.status==='success' && Array.isArray(json.data)) metrics.success++; else metrics.fail++; }",
+              "                catch(e){ metrics.fail++; }",
+              "                resolve(res);",
+              "            }",
+              "            pm.environment.set('single_metrics', JSON.stringify(metrics));",
+              "        });",
+              "    }));",
+              "}",
+              "Promise.allSettled(requests).then(res=>{",
+              "    const metrics = JSON.parse(pm.environment.get('single_metrics'));",
+              "    const total = metrics.success + metrics.fail;",
+              "    const minTime = Math.min(...metrics.times);",
+              "    const maxTime = Math.max(...metrics.times);",
+              "    const avgTime = metrics.times.reduce((a,b)=>a+b,0)/metrics.times.length;",
+              "    const csvLine = `SingleRecommendations,${total},${metrics.success},${metrics.fail},${minTime},${maxTime},${avgTime.toFixed(2)}`;",
+              "    console.log(csvLine);",
+              "    pm.environment.set('single_csv', csvLine);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Batch Recommendations Stress Test",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": { "raw": "http://localhost:8000/batch_recommendations", "protocol": "http", "host": ["localhost"], "port": "8000", "path": ["batch_recommendations"] }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "pm.environment.set('batch_metrics', JSON.stringify({success:0,fail:0,times:[]}));",
+              "const queries = ['shoes','jackets','hats','backpacks','smartphones','red shoes','blue jacket'];",
+              "const concurrentRequests = 30;",
+              "let batchRequestsArray = [];",
+              "for(let i=0;i<concurrentRequests;i++){",
+              "  let userId = 'user_' + Math.floor(Math.random()*1000000);",
+              "  let query = queries[Math.floor(Math.random()*queries.length)];",
+              "  batchRequestsArray.push({userId, query, limit: Math.floor(Math.random()*5)+1});",
+              "}",
+              "const parallel = 10;",
+              "const requests = [];",
+              "for(let i=0;i<parallel;i++){",
+              "  const payload = { requests: batchRequestsArray };",
+              "  requests.push(new Promise((resolve,reject)=>{",
+              "    const start = Date.now();",
+              "    pm.sendRequest({",
+              "      url:'http://localhost:8000/batch_recommendations',",
+              "      method:'POST',",
+              "      header:{'Content-Type':'application/json'},",
+              "      body:{mode:'raw',raw:JSON.stringify(payload)}",
+              "    }, (err,res)=>{",
+              "      const duration = Date.now()-start;",
+              "      let metrics = JSON.parse(pm.environment.get('batch_metrics'));",
+              "      metrics.times.push(duration);",
+              "      if(err) metrics.fail++;",
+              "      else {",
+              "        try{ const json=res.json(); if(json.status==='success' && Array.isArray(json.data)) metrics.success++; else metrics.fail++; }",
+              "        catch(e){ metrics.fail++; }",
+              "      }",
+              "      pm.environment.set('batch_metrics', JSON.stringify(metrics));",
+              "      err?reject(err):resolve(res);",
+              "    });",
+              "  }));",
+              "}",
+              "Promise.allSettled(requests).then(res=>{",
+              "    const metrics = JSON.parse(pm.environment.get('batch_metrics'));",
+              "    const total = metrics.success + metrics.fail;",
+              "    const minTime = Math.min(...metrics.times);",
+              "    const maxTime = Math.max(...metrics.times);",
+              "    const avgTime = metrics.times.reduce((a,b)=>a+b,0)/metrics.times.length;",
+              "    const csvLine = `BatchRecommendations,${total},${metrics.success},${metrics.fail},${minTime},${maxTime},${avgTime.toFixed(2)}`;",
+              "    console.log(csvLine);",
+              "    pm.environment.set('batch_csv', csvLine);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Interaction Logging Stress Test",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": { "raw": "http://localhost:8000/interactions", "protocol": "http", "host": ["localhost"], "port": "8000", "path": ["interactions"] }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "pm.environment.set('interact_metrics', JSON.stringify({success:0,fail:0,times:[]}));",
+              "const actions=['view','click','purchase'];",
+              "const concurrentRequests=50;",
+              "const requests=[];",
+              "for(let i=0;i<concurrentRequests;i++){",
+              "  const payload={",
+              "    userId:'user_'+Math.floor(Math.random()*1000000),",
+              "    productId:'f'+Math.floor(Math.random()*50),",
+              "    action:actions[Math.floor(Math.random()*actions.length)]",
+              "  };",
+              "  requests.push(new Promise((resolve,reject)=>{",
+              "    const start=Date.now();",
+              "    pm.sendRequest({",
+              "      url:'http://localhost:8000/interactions',",
+              "      method:'POST',",
+              "      header:{'Content-Type':'application/json'},",
+              "      body:{mode:'raw',raw:JSON.stringify(payload)}",
+              "    }, (err,res)=>{",
+              "      const duration=Date.now()-start;",
+              "      let metrics = JSON.parse(pm.environment.get('interact_metrics'));",
+              "      metrics.times.push(duration);",
+              "      if(err) metrics.fail++;",
+              "      else { try{ const json=res.json(); if(json.status==='success') metrics.success++; else metrics.fail++; } catch(e){ metrics.fail++; } }",
+              "      pm.environment.set('interact_metrics', JSON.stringify(metrics));",
+              "      err?reject(err):resolve(res);",
+              "    });",
+              "  }));",
+              "}",
+              "Promise.allSettled(requests).then(res=>{",
+              "    const metrics = JSON.parse(pm.environment.get('interact_metrics'));",
+              "    const total = metrics.success + metrics.fail;",
+              "    const minTime = Math.min(...metrics.times);",
+              "    const maxTime = Math.max(...metrics.times);",
+              "    const avgTime = metrics.times.reduce((a,b)=>a+b,0)/metrics.times.length;",
+              "    const csvLine = `Interactions,${total},${metrics.success},${metrics.fail},${minTime},${maxTime},${avgTime.toFixed(2)}`;",
+              "    console.log(csvLine);",
+              "    pm.environment.set('interact_csv', csvLine);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Embedding Lookup Stress Test",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:8000/embedding/{{product_ids}}?embedding_type=both", "protocol": "http", "host": ["localhost"], "port": "8000", "path": ["embedding", "{{product_ids}}"], "query":[{"key":"embedding_type","value":"both"}] }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "pm.environment.set('embed_metrics', JSON.stringify({success:0,fail:0,times:[]}));",
+              "let concurrentRequests=20;",
+              "let idsArray=[];",
+              "for(let i=0;i<concurrentRequests;i++){ idsArray.push('f'+Math.floor(Math.random()*50)); }",
+              "pm.variables.set('product_ids', idsArray.join(','));",
+              "const requests=[];",
+              "for(let i=0;i<concurrentRequests;i++){",
+              "  const ids=Array.from({length:5}, ()=>'f'+Math.floor(Math.random()*50)).join(',');",
+              "  requests.push(new Promise((resolve,reject)=>{",
+              "    const start=Date.now();",
+              "    pm.sendRequest({",
+              "      url:'http://localhost:8000/embedding/'+ids+'?embedding_type=both',",
+              "      method:'GET',",
+              "    }, (err,res)=>{",
+              "      const duration=Date.now()-start;",
+              "      let metrics = JSON.parse(pm.environment.get('embed_metrics'));",
+              "      metrics.times.push(duration);",
+              "      if(err) metrics.fail++;",
+              "      else { try{ const json=res.json(); if(json.status==='success') metrics.success++; else metrics.fail++; } catch(e){ metrics.fail++; } }",
+              "      pm.environment.set('embed_metrics', JSON.stringify(metrics));",
+              "      err?reject(err):resolve(res);",
+              "    });",
+              "  }));",
+              "}",
+              "Promise.allSettled(requests).then(res=>{",
+              "    const metrics = JSON.parse(pm.environment.get('embed_metrics'));",
+              "    const total = metrics.success + metrics.fail;",
+              "    const minTime = Math.min(...metrics.times);",
+              "    const maxTime = Math.max(...metrics.times);",
+              "    const avgTime = metrics.times.reduce((a,b)=>a+b,0)/metrics.times.length;",
+              "    const csvLine = `EmbeddingLookup,${total},${metrics.success},${metrics.fail},${minTime},${maxTime},${avgTime.toFixed(2)}`;",
+              "    console.log(csvLine);",
+              "    pm.environment.set('embed_csv', csvLine);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
