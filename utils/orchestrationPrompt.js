@@ -1,6 +1,5 @@
 // backend/utils/orchestrationPrompt.js
 
-
 function generateAutonomousOrchestrationPrompt(recentMessages, userInput) {
   const conversationContext = recentMessages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
