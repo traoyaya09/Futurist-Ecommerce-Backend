@@ -20,14 +20,14 @@ module.exports = {
   },
 
   cors: {
-    allowedOrigins: [
-      "http://localhost:5173", // Vite dev server
-      "http://localhost:3000", // fallback dev
-      "https://futurist-ecommerce-frontend.vercel.app",
-      "https://futurist-ecommerce-frontend.onrender.com",
-      "https://your-production-frontend.com", // add your real frontend URL
-    ],
-  },
+  allowedOrigins: [
+    "http://localhost:5173", // Vite dev server
+    "http://localhost:3000", // fallback dev
+    "https://futurist-ai-git-develop-yaya-traores-projects-dccd4831.vercel.app",
+    "https://futurist-aw5fi8g7e-yaya-traores-projects-dccd4831.vercel.app",
+  ],
+},
+
 
   paypal: {
     clientID: process.env.PAYPAL_CLIENT_ID || "AfZrobvCe6f5la6GSpAb32b_GRB_aezws3qayjz369YzybdScZ4H-hQFZ2VGMLE6ZDDMtfOgCKWRzjs8",
