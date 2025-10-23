@@ -1,15 +1,17 @@
 // backend/utils/orchestrationPrompt.js
 
+'use strict';
+
 /**
  * Generates a GPT prompt for autonomous orchestration tasks
- * @param {Array} recentMessages - Array of recent user/AI messages
- * @param {String} userInput - The current user input
- * @returns {String} - GPT prompt string
- */ 
+ * @param {Array<{role: string, content: string}>} recentMessages - Array of recent user/AI messages
+ * @param {string} userInput - The current user input
+ * @returns {string} GPT prompt string
+ */
 function generateAutonomousOrchestrationPrompt(recentMessages, userInput) {
   const conversationContext = recentMessages
-    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
-    .join("\n");
+    .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+    .join('\n');
 
   return `
 You are an intelligent AI shopping assistant capable of autonomous orchestration.
@@ -34,5 +36,4 @@ Instructions:
 5. Always maintain JSON-valid output.
 `;
 }
-
 module.exports = { generateAutonomousOrchestrationPrompt };
