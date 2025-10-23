@@ -6,6 +6,7 @@
  * @param {String} userInput - The current user input
  * @returns {String} - GPT prompt string
  */
+
 function generateAutonomousOrchestrationPrompt(recentMessages, userInput) {
   const conversationContext = recentMessages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
