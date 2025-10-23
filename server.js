@@ -55,17 +55,42 @@ if (config.app.environment === "development") app.use(morgan("dev"));
 // ------------------------------
 // CORS Setup
 // ------------------------------
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (frontends.includes(origin)) return callback(null, true);
-      return callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  })
-);
+
+// Whitelisted frontend URLs
+const allowedOrigins = [
+  "http://localhost:5173", // Vite dev
+  "http://localhost:3000", // fallback dev
+  "https://futurist-ai-git-develop-yaya-traores-projects-dccd4831.vercel.app",
+  "https://futurist-aw5fi8g7e-yaya-traores-projects-dccd4831.vercel.app",
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests like Postman or server-to-server (no origin)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    console.warn(`[CORS BLOCKED] Origin not allowed: ${origin}`);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true, // Allow cookies / JWT auth
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+  ],
+  optionsSuccessStatus: 200, // Legacy browsers support
+};
+
+// Apply CORS to all routes
+module.exports = function applyCors(app) {
+  app.use(cors(corsOptions));
+  app.options("*", cors(corsOptions)); // Preflight requests
+};
+
 
 // ------------------------------
 // Rate Limiting
