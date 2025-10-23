@@ -9,7 +9,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const asyncHandler = require("express-async-handler");
 const NodeCache = require("node-cache");
-
+const applyCors = require("./middleware/cors");
 const connectDB = require("./config/db.js");
 const config = require("./config/config.js");
 const { getCSPDirectives, getOrigins } = require("./utils/cspDirectives");
@@ -30,7 +30,7 @@ const app = express();
 const { frontends } = getOrigins(config.app.environment);
 
 // ------------------------------
-// Security Middlewares
+// 1️⃣ Security Middlewares
 // ------------------------------
 app.use(
   helmet({
@@ -38,58 +38,32 @@ app.use(
   })
 );
 app.use(securityHeaders);
-app.use(compression());
+
+// ------------------------------
+// 2️⃣ CORS Middleware
+// ------------------------------
+applyCors(app);
+
+// ------------------------------
+// 3️⃣ Logger
+// ------------------------------
 app.use(logger);
 
 // ------------------------------
-// Request parsing
+// 4️⃣ Request parsing
 // ------------------------------
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ------------------------------
-// Logging in development
+// 5️⃣ Compression
+// ------------------------------
+app.use(compression());
+
+// ------------------------------
+// 6️⃣ Development logging
 // ------------------------------
 if (config.app.environment === "development") app.use(morgan("dev"));
-
-// ------------------------------
-// CORS Setup
-// ------------------------------
-
-// Whitelisted frontend URLs
-const allowedOrigins = [
-  "http://localhost:5173", // Vite dev
-  "http://localhost:3000", // fallback dev
-  "https://futurist-ai-git-develop-yaya-traores-projects-dccd4831.vercel.app",
-  "https://futurist-aw5fi8g7e-yaya-traores-projects-dccd4831.vercel.app",
-];
-
-const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests like Postman or server-to-server (no origin)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-
-    console.warn(`[CORS BLOCKED] Origin not allowed: ${origin}`);
-    return callback(new Error("Not allowed by CORS"));
-  },
-  credentials: true, // Allow cookies / JWT auth
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Requested-With",
-    "Accept",
-  ],
-  optionsSuccessStatus: 200, // Legacy browsers support
-};
-
-// Apply CORS to all routes
-module.exports = function applyCors(app) {
-  app.use(cors(corsOptions));
-  app.options("*", cors(corsOptions)); // Preflight requests
-};
 
 
 // ------------------------------
